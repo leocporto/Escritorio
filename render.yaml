@@ -1,0 +1,16 @@
+# Blueprint do Render — deploy ÚNICO do Guther (site + servidor de tempo real).
+# No Render: New > Blueprint > conecte este repositório. Ele builda o frontend
+# e o servidor, e sobe um único serviço que serve o site e o WebSocket (Socket.IO)
+# na mesma origem. Você recebe UMA URL, que já é o app completo.
+services:
+  - type: web
+    name: guther
+    runtime: node
+    plan: free
+    buildCommand: >-
+      npm install --prefix client &&
+      npm run build --prefix client &&
+      npm install --prefix server &&
+      npm run build --prefix server
+    startCommand: npm start --prefix server
+    healthCheckPath: /health

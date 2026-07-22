@@ -1,0 +1,13 @@
+Assets do escritório (piso, paredes, móveis, plantas)
+=====================================================
+
+Recortados dos tilesets do projeto Tuxemon:
+  https://github.com/Tuxemon/Tuxemon
+  (mods/tuxemon/gfx/tilesets: core_indoor_floors, core_indoor_walls,
+   furniture, core set pieces)
+
+Licença: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0)
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Crédito aos autores do Tuxemon. Trabalhos derivados destes tiles devem
+manter a mesma licença (share-alike).
