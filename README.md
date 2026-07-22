@@ -85,6 +85,45 @@ cd server && npm run build && npm start
 cd client && npm run build            # gera client/dist (estático)
 ```
 
+## Deploy (Vercel + Render)
+
+> ⚠️ **A Vercel não hospeda servidores WebSocket persistentes** (é serverless).
+> O servidor Socket.IO/WebRTC precisa de um host com WebSocket. Por isso o
+> **frontend vai para a Vercel** e o **servidor para o Render** (grátis). Os dois
+> arquivos de config já estão no repositório: `vercel.json` e `render.yaml`.
+
+### 1. Servidor no Render
+
+1. Em [render.com](https://render.com): **New → Blueprint** e conecte este
+   repositório. O Render lê o `render.yaml`, builda `server/` e sobe o serviço.
+2. Ao final você terá uma URL, ex.: `https://guther-server.onrender.com`.
+
+> No plano gratuito o serviço "dorme" após inatividade — a primeira conexão
+> pode levar ~50s para acordar.
+
+### 2. Frontend na Vercel
+
+1. Em [vercel.com](https://vercel.com): **Add New → Project** e importe este
+   repositório. O `vercel.json` já configura o build do `client/`.
+2. **Antes de fazer o deploy**, em *Settings → Environment Variables*, adicione:
+   - `VITE_SERVER_URL` = a URL do Render (ex.: `https://guther-server.onrender.com`)
+
+   > Essa variável é lida em **tempo de build** pelo Vite; se mudar a URL depois,
+   > refaça o deploy (*Redeploy*).
+3. Faça o deploy. A URL da Vercel é o link do seu Guther. 🎉
+
+### 3. (Opcional) Restringir CORS
+
+No Render, defina `CLIENT_ORIGIN` com a URL da Vercel (ex.:
+`https://seu-app.vercel.app`) para permitir só a sua origem.
+
+> **WebRTC entre redes diferentes:** o app usa apenas um servidor **STUN**
+> público. Em muitas redes reais (NAT restrito) isso não basta e o vídeo pode
+> não conectar — nesse caso é preciso um servidor **TURN**
+> (ex.: [Twilio](https://www.twilio.com/stun-turn),
+> [Metered](https://www.metered.ca/tools/openrelay/) ou um `coturn` próprio),
+> adicionando-o em `ICE_SERVERS` (`client/src/net/webrtc.ts`).
+
 ## Arquitetura
 
 O servidor mantém as posições dos jogadores **em memória** (uma sala única) e,

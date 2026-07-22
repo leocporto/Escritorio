@@ -1,0 +1,17 @@
+# Blueprint do Render para o servidor de tempo real do Guther.
+# No Render: New > Blueprint > conecte este repositório. Ele lê este arquivo,
+# builda a pasta server/ e sobe o Socket.IO com suporte a WebSocket.
+services:
+  - type: web
+    name: guther-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # Origem permitida no CORS. Troque "*" pela URL da Vercel para restringir,
+      # ex.: https://seu-app.vercel.app
+      - key: CLIENT_ORIGIN
+        value: "*"

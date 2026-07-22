@@ -16,7 +16,12 @@ let socket: GameSocket | null = null;
 
 export function getSocket(): GameSocket {
   if (!socket) {
-    socket = io(SERVER_URL, { autoConnect: true, transports: ["websocket"] });
+    // Mantém "polling" como fallback além de "websocket": alguns hosts/proxies
+    // exigem o handshake por polling antes de subir para WebSocket.
+    socket = io(SERVER_URL, {
+      autoConnect: true,
+      transports: ["websocket", "polling"],
+    });
   }
   return socket;
 }
