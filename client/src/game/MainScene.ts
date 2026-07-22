@@ -2,11 +2,14 @@ import Phaser from "phaser";
 import { getSocket } from "../net/socket";
 import { Direction, PlayerState } from "../net/protocol";
 
-const TILE = 32;
-const SPEED = 180;
+const TILE = 16;
+const WORLD_W = 800;
+const WORLD_H = 608;
+const SPEED = 170;
 const MOVE_EMIT_MS = 66; // ~15 Hz
 
 interface RemoteEntry {
+  shadow: Phaser.GameObjects.Ellipse;
   body: Phaser.GameObjects.Image;
   face: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Text;
@@ -29,40 +32,22 @@ const FACE_ANGLE: Record<Direction, number> = {
   right: 270,
 };
 
-/**
- * Layout do mundo. 1 = parede, 0 = piso. Bordas fechadas + alguns obstáculos
- * internos para dar referência de colisão (estilo "salas" do Gather).
- */
-const MAP: number[][] = buildMap();
-
-function buildMap(): number[][] {
-  const cols = 25;
-  const rows = 19;
-  const grid: number[][] = [];
-  for (let r = 0; r < rows; r++) {
-    const row: number[] = [];
-    for (let c = 0; c < cols; c++) {
-      const border = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
-      row.push(border ? 1 : 0);
-    }
-    grid.push(row);
-  }
-  // Alguns blocos/móveis internos.
-  const blocks = [
-    [4, 4],
-    [4, 5],
-    [4, 6],
-    [10, 12],
-    [11, 12],
-    [12, 12],
-    [7, 18],
-    [8, 18],
-    [14, 6],
-    [14, 7],
-  ];
-  for (const [r, c] of blocks) grid[r][c] = 1;
-  return grid;
-}
+// Assets pixel-art do escritório (tiles 16px do Tuxemon, CC-BY-SA).
+const OFFICE_ASSETS = [
+  "floor_wood",
+  "floor_tile",
+  "rug_blue",
+  "wall",
+  "wall_base",
+  "desk",
+  "shelf",
+  "sofa",
+  "dresser",
+  "stool",
+  "computer",
+  "tree",
+  "plant",
+] as const;
 
 export class MainScene extends Phaser.Scene {
   private selfId!: string;
@@ -71,11 +56,12 @@ export class MainScene extends Phaser.Scene {
   private initialPlayers: PlayerState[] = [];
 
   private player!: Phaser.Physics.Arcade.Image;
+  private playerShadow!: Phaser.GameObjects.Ellipse;
   private playerFace!: Phaser.GameObjects.Image;
   private playerLabel!: Phaser.GameObjects.Text;
   private dir: Direction = "down";
 
-  private walls!: Phaser.Physics.Arcade.StaticGroup;
+  private solids!: Phaser.Physics.Arcade.StaticGroup;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key>;
 
@@ -95,83 +81,145 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.makeTextures();
+    for (const key of OFFICE_ASSETS) {
+      this.load.image(key, `/assets/office/${key}.png`);
+    }
+    this.makeAvatarTextures();
   }
 
-  private makeTextures(): void {
-    // Piso (tile claro com leve grade).
-    const floor = this.add.graphics();
-    floor.fillStyle(0x2b2f3a, 1).fillRect(0, 0, TILE, TILE);
-    floor.lineStyle(1, 0x353a47, 1).strokeRect(0, 0, TILE, TILE);
-    floor.generateTexture("floor", TILE, TILE);
-    floor.destroy();
-
-    // Parede.
-    const wall = this.add.graphics();
-    wall.fillStyle(0x5a6072, 1).fillRect(0, 0, TILE, TILE);
-    wall.lineStyle(1, 0x6d7488, 1).strokeRect(0, 0, TILE, TILE);
-    wall.generateTexture("wall", TILE, TILE);
-    wall.destroy();
-
-    // Corpo do avatar (círculo branco, tingido por jogador).
-    const R = 13;
+  private makeAvatarTextures(): void {
+    const R = 7;
     const body = this.add.graphics();
-    body.fillStyle(0xffffff, 1).fillCircle(R + 2, R + 2, R);
-    body.lineStyle(2, 0x000000, 0.25).strokeCircle(R + 2, R + 2, R);
-    body.generateTexture("avatarBody", (R + 2) * 2, (R + 2) * 2);
+    body.fillStyle(0xffffff, 1).fillCircle(R + 1, R + 1, R);
+    body.lineStyle(1, 0x000000, 0.3).strokeCircle(R + 1, R + 1, R);
+    body.generateTexture("avatarBody", (R + 1) * 2, (R + 1) * 2);
     body.destroy();
 
-    // Indicador de direção (triângulo escuro apontando para baixo por padrão).
     const face = this.add.graphics();
-    face.fillStyle(0x1c1f26, 0.85);
-    face.beginPath();
-    face.moveTo(9, 4);
-    face.lineTo(1, 4);
-    face.lineTo(5, 12);
-    face.closePath();
-    face.fillPath();
-    face.generateTexture("avatarFace", 10, 14);
+    face.fillStyle(0x1c1f26, 0.9);
+    face.fillTriangle(6, 2, 1, 2, 3.5, 7);
+    face.generateTexture("avatarFace", 7, 9);
     face.destroy();
   }
 
-  create(): void {
-    // --- Mundo / tilemap ---
-    const rows = MAP.length;
-    const cols = MAP[0].length;
-    const worldW = cols * TILE;
-    const worldH = rows * TILE;
+  // ---- Helpers de construção do cenário ----
 
-    this.walls = this.physics.add.staticGroup();
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = c * TILE + TILE / 2;
-        const y = r * TILE + TILE / 2;
-        this.add.image(x, y, "floor");
-        if (MAP[r][c] === 1) {
-          const w = this.walls.create(x, y, "wall") as Phaser.Physics.Arcade.Image;
-          w.refreshBody();
-        }
-      }
+  private addFloor(key: string, tx: number, ty: number, tw: number, th: number, depth = 1): void {
+    this.add
+      .tileSprite(tx * TILE, ty * TILE, tw * TILE, th * TILE, key)
+      .setOrigin(0, 0)
+      .setDepth(depth);
+  }
+
+  private addWall(tx: number, ty: number, tw: number, th: number): void {
+    this.add
+      .tileSprite(tx * TILE, ty * TILE, tw * TILE, th * TILE, "wall")
+      .setOrigin(0, 0)
+      .setDepth(2);
+    this.addSolid(tx * TILE, ty * TILE, tw * TILE, th * TILE);
+  }
+
+  private addSolid(x: number, y: number, w: number, h: number): void {
+    const rect = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x000000, 0);
+    this.physics.add.existing(rect, true);
+    this.solids.add(rect);
+  }
+
+  /** Coloca um móvel/prop. `y` é a base (pés) do objeto — bom para y-sort. */
+  private addProp(
+    key: string,
+    x: number,
+    y: number,
+    opts: { solid?: boolean; bw?: number; bh?: number; scale?: number } = {},
+  ): Phaser.GameObjects.Image {
+    const img = this.add.image(x, y, key).setOrigin(0.5, 1);
+    if (opts.scale) img.setScale(opts.scale);
+    img.setDepth(y);
+    if (opts.solid) {
+      const w = opts.bw ?? img.displayWidth * 0.8;
+      const h = opts.bh ?? img.displayHeight * 0.45;
+      this.addSolid(x - w / 2, y - h, w, h);
     }
+    return img;
+  }
 
-    this.physics.world.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setBackgroundColor("#1a1c22");
+  private buildOffice(): void {
+    this.solids = this.physics.add.staticGroup();
+
+    // Piso base (madeira) em todo o mundo.
+    this.addFloor("floor_wood", 0, 0, WORLD_W / TILE, WORLD_H / TILE, 0);
+
+    // Acentos de piso por zona.
+    this.addFloor("floor_tile", 1, 1, 15, 12); // sala de reunião (topo-esq.)
+    this.addFloor("rug_blue", 35, 27, 14, 10); // lounge (baixo-dir.)
+
+    // Paredes externas (borda).
+    const cols = WORLD_W / TILE; // 50
+    const rows = WORLD_H / TILE; // 38
+    this.addWall(0, 0, cols, 1);
+    this.addWall(0, rows - 1, cols, 1);
+    this.addWall(0, 0, 1, rows);
+    this.addWall(cols - 1, 0, 1, rows);
+
+    // Divisórias (stubs — não fecham totalmente, evitam prender jogadores).
+    this.addWall(16, 1, 1, 8); // vertical da sala de reunião
+    this.addWall(1, 13, 10, 1); // horizontal da sala de reunião
+
+    // --- Sala de reunião (mesa + banquinhos) ---
+    this.addProp("dresser", 120, 110, { solid: true });
+    this.addProp("stool", 120, 70);
+    this.addProp("stool", 120, 140);
+    this.addProp("stool", 80, 105);
+    this.addProp("stool", 160, 105);
+    this.addProp("shelf", 60, 44, { solid: true, bw: 28, bh: 10 });
+    this.addProp("plant", 230, 40);
+
+    // --- Estações de trabalho (topo-direita) ---
+    for (const wx of [430, 520, 610]) {
+      this.addProp("desk", wx, 96, { solid: true });
+      this.addProp("computer", wx, 74); // sobre a mesa
+      this.addProp("stool", wx, 122);
+    }
+    this.addProp("plant", 700, 44);
+    this.addProp("tree", 760, 60);
+
+    // --- Lounge (sofá, árvore, planta) ---
+    this.addProp("sofa", 640, 480, { solid: true, bw: 30, bh: 12 });
+    this.addProp("tree", 720, 470, { solid: true, bw: 12, bh: 8 });
+    this.addProp("plant", 590, 500);
+
+    // --- Decoração para preencher as áreas abertas (fora da zona de spawn) ---
+    this.addProp("plant", 120, 470);
+    this.addProp("tree", 190, 560, { solid: true, bw: 12, bh: 8 });
+    this.addProp("shelf", 320, 566, { solid: true, bw: 28, bh: 10 });
+    this.addProp("plant", 460, 540);
+    this.addProp("tree", 560, 430, { solid: true, bw: 12, bh: 8 });
+    this.addProp("plant", 560, 210);
+    this.addProp("tree", 740, 200, { solid: true, bw: 12, bh: 8 });
+  }
+
+  create(): void {
+    this.cameras.main.setBackgroundColor("#141518");
+    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setZoom(1.8);
+
+    this.buildOffice();
 
     // --- Player local ---
     const self = this.initialPlayers.find((p) => p.id === this.selfId);
-    const sx = self?.x ?? 100;
-    const sy = self?.y ?? 100;
+    const sx = self?.x ?? 300;
+    const sy = self?.y ?? 300;
 
+    this.playerShadow = this.add.ellipse(sx, sy + 7, 16, 7, 0x000000, 0.3);
     this.player = this.physics.add.image(sx, sy, "avatarBody");
     this.player.setTint(Phaser.Display.Color.HexStringToColor(this.selfColor).color);
-    this.player.setCircle(15);
+    this.player.setCircle(8);
     this.player.setCollideWorldBounds(true);
-    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(this.player, this.solids);
 
-    this.playerFace = this.add.image(sx, sy, "avatarFace").setDepth(5);
+    this.playerFace = this.add.image(sx, sy, "avatarFace");
     this.playerLabel = this.makeLabel(this.selfName);
-    this.player.setDepth(4);
 
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
 
@@ -196,23 +244,26 @@ export class MainScene extends Phaser.Scene {
     return this.add
       .text(0, 0, text, {
         fontFamily: "system-ui, sans-serif",
-        fontSize: "12px",
+        fontSize: "9px",
         color: "#ffffff",
-        backgroundColor: "#00000066",
-        padding: { x: 4, y: 2 },
+        backgroundColor: "#000000aa",
+        padding: { x: 3, y: 1 },
+        resolution: 3,
       })
       .setOrigin(0.5, 1)
-      .setDepth(6);
+      .setDepth(100000);
   }
 
   private addRemote(p: PlayerState): void {
     if (this.remotes.has(p.id)) return;
-    const body = this.add.image(p.x, p.y, "avatarBody").setDepth(4);
+    const shadow = this.add.ellipse(p.x, p.y + 7, 16, 7, 0x000000, 0.3);
+    const body = this.add.image(p.x, p.y, "avatarBody");
     body.setTint(Phaser.Display.Color.HexStringToColor(p.color).color);
-    const face = this.add.image(p.x, p.y, "avatarFace").setDepth(5);
+    const face = this.add.image(p.x, p.y, "avatarFace");
     face.setAngle(FACE_ANGLE[p.dir]);
     const label = this.makeLabel(p.name);
     this.remotes.set(p.id, {
+      shadow,
       body,
       face,
       label,
@@ -225,6 +276,7 @@ export class MainScene extends Phaser.Scene {
   private removeRemote(id: string): void {
     const r = this.remotes.get(id);
     if (!r) return;
+    r.shadow.destroy();
     r.body.destroy();
     r.face.destroy();
     r.label.destroy();
@@ -249,7 +301,6 @@ export class MainScene extends Phaser.Scene {
 
     socket.on("player-left", ({ id }) => this.removeRemote(id));
 
-    // Ao destruir a cena, remove os listeners para evitar duplicação em HMR.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       socket.off("player-joined");
       socket.off("player-moved");
@@ -257,21 +308,26 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private positionFace(
+  private placeAvatar(
+    shadow: Phaser.GameObjects.Ellipse,
+    body: Phaser.GameObjects.Image,
     face: Phaser.GameObjects.Image,
+    label: Phaser.GameObjects.Text,
     x: number,
     y: number,
     dir: Direction,
   ): void {
-    const off = 6;
+    body.setPosition(x, y).setDepth(y);
+    shadow.setPosition(x, y + 7).setDepth(y - 1);
+    const off = 5;
     let fx = x;
     let fy = y;
     if (dir === "down") fy = y + off;
     else if (dir === "up") fy = y - off;
     else if (dir === "left") fx = x - off;
     else fx = x + off;
-    face.setPosition(fx, fy);
-    face.setAngle(FACE_ANGLE[dir]);
+    face.setPosition(fx, fy).setAngle(FACE_ANGLE[dir]).setDepth(y + 0.1);
+    label.setPosition(x, y - 12);
   }
 
   update(time: number, delta: number): void {
@@ -287,8 +343,6 @@ export class MainScene extends Phaser.Scene {
     else if (right) vx = SPEED;
     if (up) vy = -SPEED;
     else if (down) vy = SPEED;
-
-    // Normaliza diagonal.
     if (vx !== 0 && vy !== 0) {
       const inv = 1 / Math.SQRT2;
       vx *= inv;
@@ -301,13 +355,18 @@ export class MainScene extends Phaser.Scene {
     else if (vx < 0) this.dir = "left";
     else if (vx > 0) this.dir = "right";
 
-    // Acompanha visual do player local.
     const px = this.player.x;
     const py = this.player.y;
-    this.positionFace(this.playerFace, px, py, this.dir);
-    this.playerLabel.setPosition(px, py - 20);
+    this.placeAvatar(
+      this.playerShadow,
+      this.player,
+      this.playerFace,
+      this.playerLabel,
+      px,
+      py,
+      this.dir,
+    );
 
-    // Emite movimento com throttle quando muda posição/direção.
     if (time - this.lastEmit > MOVE_EMIT_MS) {
       const moved =
         Math.abs(px - this.lastSent.x) > 0.5 ||
@@ -323,10 +382,9 @@ export class MainScene extends Phaser.Scene {
     // --- Interpola players remotos ---
     const t = Math.min(1, (delta / 1000) * 12);
     for (const r of this.remotes.values()) {
-      r.body.x = Phaser.Math.Linear(r.body.x, r.targetX, t);
-      r.body.y = Phaser.Math.Linear(r.body.y, r.targetY, t);
-      this.positionFace(r.face, r.body.x, r.body.y, r.dir);
-      r.label.setPosition(r.body.x, r.body.y - 20);
+      const nx = Phaser.Math.Linear(r.body.x, r.targetX, t);
+      const ny = Phaser.Math.Linear(r.body.y, r.targetY, t);
+      this.placeAvatar(r.shadow, r.body, r.face, r.label, nx, ny, r.dir);
     }
   }
 }

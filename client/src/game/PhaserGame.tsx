@@ -21,8 +21,9 @@ export function PhaserGame({ selfId, name, color, players }: Props) {
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: containerRef.current,
-      backgroundColor: "#1a1c22",
-      pixelArt: false,
+      backgroundColor: "#141518",
+      pixelArt: true,
+      roundPixels: true,
       scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH,

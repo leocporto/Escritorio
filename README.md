@@ -134,5 +134,14 @@ sinalização** (repasse de offer/answer/ICE); a mídia trafega P2P (mesh).
 - Estado do mundo é **em memória** e há **uma sala única**. Evoluções naturais:
   múltiplas salas, persistência, áreas privadas ("private spaces") e volume do
   áudio proporcional à distância.
-- Assets são **placeholders gerados por código** — fáceis de trocar por
-  tilesets/sprites reais (ex.: Kenney, LPC).
+- O **mundo é pixel art** (piso, paredes e móveis de um escritório). Os
+  **avatares** ainda são círculos simples — próximo passo natural é trocá-los por
+  personagens em pixel com animação de caminhada, para coerência total.
+
+## Créditos dos assets
+
+Os tiles do escritório (piso, paredes e móveis em `client/public/assets/office/`)
+foram recortados dos tilesets do projeto open-source
+**[Tuxemon](https://github.com/Tuxemon/Tuxemon)**, licenciados sob
+**[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)**. Crédito aos
+autores do Tuxemon; obras derivadas devem manter a mesma licença (share-alike).
