@@ -6,11 +6,14 @@ import {
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
-// A URL do servidor pode ser sobrescrita via VITE_SERVER_URL; por padrão
-// assume o servidor local na porta 3001.
+// A URL do servidor pode ser sobrescrita via VITE_SERVER_URL. Sem ela:
+//  - em produção (deploy único, servidor serve o site): mesma origem;
+//  - em desenvolvimento (Vite em :5173): servidor local em :3001.
 const SERVER_URL =
   (import.meta.env.VITE_SERVER_URL as string | undefined) ??
-  `${window.location.protocol}//${window.location.hostname}:3001`;
+  (import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:3001`
+    : window.location.origin);
 
 let socket: GameSocket | null = null;
 

@@ -1,4 +1,7 @@
 import { createServer } from "http";
+import { fileURLToPath } from "url";
+import path from "path";
+import { existsSync } from "fs";
 import express from "express";
 import cors from "cors";
 import { Server } from "socket.io";
@@ -15,6 +18,18 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? "*";
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Em produção (deploy único), o servidor também serve o site já buildado
+// (client/dist), de modo que tudo funciona na mesma origem — sem precisar
+// configurar URL do servidor no frontend.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = path.resolve(__dirname, "../../client/dist");
+if (existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  // Fallback SPA: qualquer rota não-API devolve o index.html.
+  app.get("*", (_req, res) => res.sendFile(path.join(clientDist, "index.html")));
+  console.log(`[guther] servindo frontend estático de ${clientDist}`);
+}
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
